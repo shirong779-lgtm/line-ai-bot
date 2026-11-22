@@ -1,4 +1,5 @@
 ﻿import os
+import time
 import hmac
 import hashlib
 import base64
@@ -49,8 +50,35 @@ def reply_line_message(reply_token: str, text: str):
         "replyToken": reply_token,
         "messages": [{"type": "text", "text": text[:4500]}],
     }
-    resp = requests.post(url, headers=headers, json=payload, timeout=15)
-    resp.raise_for_status()
+    try:
+        resp = requests.post(url, headers=headers, json=payload, timeout=15)
+        resp.raise_for_status()
+    except Exception as e:
+        print("LINE reply error:", e)
+
+
+def generate_ai_reply(user_text: str) -> str:
+    delays = [0, 1.5, 3.0]
+    for delay in delays:
+        if delay > 0:
+            time.sleep(delay)
+        try:
+            response = client.models.generate_content(
+                model="gemini-3.8-flash",
+                contents=user_text,
+                config={
+                    "system_instruction": SYSTEM_PROMPT,
+                    "temperature": 0.9,
+                },
+            )
+            text = (response.text or "").strip()
+            if text:
+                return text
+        except Exception as e:
+            print("Gemini error:", e)
+            if "503" not in str(e) and "UNAVAILABLE" not in str(e):
+                break
+    return "我剛剛腦袋有點打結，晚一點再跟你好好聊～"
 
 
 @app.get("/")
@@ -72,21 +100,8 @@ async def line_webhook(
         if event.get("type") == "message" and event.get("message", {}).get("type") == "text":
             user_text = event["message"]["text"]
             reply_token = event["replyToken"]
-
-            try:
-                response = client.models.generate_content(
-                    model="gemini-3.8-flash",
-                    contents=user_text,
-                    config={
-                        "system_instruction": SYSTEM_PROMPT,
-                        "temperature": 0.9,
-                    },
-                )
-                reply_text = (response.text or "我剛剛恍神了一下，可以再跟我說一次嗎？").strip()
-            except Exception as e:
-                print("Gemini error:", e)
-                reply_text = "我剛剛腦袋有點打結，晚一點再跟你好好聊～"
-
+            reply_text = generate_ai_reply(user_text)
             reply_line_message(reply_token, reply_text)
 
     return {"status": "ok"}
+
