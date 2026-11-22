@@ -10,9 +10,9 @@ from google import genai
 app = FastAPI()
 
 
-LINE_CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET", "")
-LINE_CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "")
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+LINE_CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET", "").strip()
+LINE_CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "").strip()
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
 
 
 client = genai.Client(api_key=GEMINI_API_KEY)
@@ -27,8 +27,6 @@ SYSTEM_PROMPT = """
 """
 
 
-
-
 def verify_signature(body: bytes, signature: str) -> bool:
     if not LINE_CHANNEL_SECRET or not signature:
         return False
@@ -41,10 +39,8 @@ def verify_signature(body: bytes, signature: str) -> bool:
     return hmac.compare_digest(expected, signature)
 
 
-
-
 def reply_line_message(reply_token: str, text: str):
-    url = "https://api.line.biz/v2/bot/message/reply"
+    url = "https://api.line.me/v2/bot/message/reply"
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}",
@@ -53,16 +49,13 @@ def reply_line_message(reply_token: str, text: str):
         "replyToken": reply_token,
         "messages": [{"type": "text", "text": text[:4500]}],
     }
-    requests.post(url, headers=headers, json=payload, timeout=15)
-
-
+    resp = requests.post(url, headers=headers, json=payload, timeout=15)
+    resp.raise_for_status()
 
 
 @app.get("/")
 def health_check():
     return {"status": "ok", "message": "LINE AI bot is running"}
-
-
 
 
 @app.post("/webhook")
@@ -74,17 +67,15 @@ async def line_webhook(
     if not verify_signature(body, x_line_signature):
         raise HTTPException(status_code=400, detail="Invalid signature")
 
-
     data = await request.json()
     for event in data.get("events", []):
         if event.get("type") == "message" and event.get("message", {}).get("type") == "text":
             user_text = event["message"]["text"]
             reply_token = event["replyToken"]
 
-
             try:
                 response = client.models.generate_content(
-                    model="gemini-2.5-flash",
+                    model="gemini-3.8-flash",
                     contents=user_text,
                     config={
                         "system_instruction": SYSTEM_PROMPT,
@@ -96,8 +87,6 @@ async def line_webhook(
                 print("Gemini error:", e)
                 reply_text = "我剛剛腦袋有點打結，晚一點再跟你好好聊～"
 
-
             reply_line_message(reply_token, reply_text)
-
 
     return {"status": "ok"}
