@@ -58,26 +58,37 @@ def reply_line_message(reply_token: str, text: str):
 
 
 def generate_ai_reply(user_text: str) -> str:
-    delays = [0, 1.5, 3.0]
-    for delay in delays:
-        if delay > 0:
-            time.sleep(delay)
-        try:
-            response = client.models.generate_content(
-                model="gemini-3.8-flash",
-                contents=user_text,
-                config={
-                    "system_instruction": SYSTEM_PROMPT,
-                    "temperature": 0.9,
-                },
-            )
-            text = (response.text or "").strip()
-            if text:
-                return text
-        except Exception as e:
-            print("Gemini error:", e)
-            if "503" not in str(e) and "UNAVAILABLE" not in str(e):
-                break
+    models_to_try = [
+        "gemini-2.5-flash-lite",
+        "gemini-2.5-flash",
+        "gemini-3.8-flash",
+    ]
+    retry_delays = [0, 1.5]
+
+    for model_name in models_to_try:
+        for delay in retry_delays:
+            if delay > 0:
+                time.sleep(delay)
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=user_text,
+                    config={
+                        "system_instruction": SYSTEM_PROMPT,
+                        "temperature": 0.9,
+                    },
+                )
+                text = (response.text or "").strip()
+                if text:
+                    return text
+            except Exception as e:
+                err_str = str(e)
+                print(f"Gemini error ({model_name}):", err_str)
+                if "429" in err_str or "404" in err_str:
+                    break
+                if "503" not in err_str and "UNAVAILABLE" not in err_str:
+                    break
+
     return "我剛剛腦袋有點打結，晚一點再跟你好好聊～"
 
 
@@ -104,4 +115,3 @@ async def line_webhook(
             reply_line_message(reply_token, reply_text)
 
     return {"status": "ok"}
-
