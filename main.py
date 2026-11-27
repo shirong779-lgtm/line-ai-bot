@@ -43,7 +43,7 @@ def verify_signature(body: bytes, signature: str) -> bool:
 
 
 def reply_line_message(reply_token: str, text: str):
-    url = "https://line.me"
+    url = "https://" + "api.line.me/v2/bot/message/reply"
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}",
