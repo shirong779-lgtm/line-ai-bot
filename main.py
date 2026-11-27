@@ -58,7 +58,6 @@ def reply_line_message(reply_token: str, text: str):
     except Exception as e:
         print("LINE reply error:", e)
 
-
 def generate_ai_reply(user_text: str) -> str:
     models_to_try = [
         "gemini-3.5-flash-lite",
