@@ -3,6 +3,7 @@ import time
 import hmac
 import hashlib
 import base64
+import asyncio
 import requests
 from fastapi import FastAPI, Request, Header, HTTPException
 from google import genai
@@ -42,7 +43,7 @@ def verify_signature(body: bytes, signature: str) -> bool:
 
 
 def reply_line_message(reply_token: str, text: str):
-    url = "https://api.line.me/v2/bot/message/reply"
+    url = "https://line.me"
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {LINE_CHANNEL_ACCESS_TOKEN}",
@@ -59,12 +60,10 @@ def reply_line_message(reply_token: str, text: str):
 
 
 def generate_ai_reply(user_text: str) -> str:
-    # 更新為官方建議的 3.5 / 3.8 模型，並以 lite 為優先降低 503 機率
     models_to_try = [
         "gemini-3.5-flash-lite",
         "gemini-3.8-flash",
     ]
-    # 第一次立即嘗試，若遇 503 則等 1.5 秒再試一次，隨即切換備援模型
     retry_delays = [0, 1.5]
 
     for model_name in models_to_try:
@@ -86,10 +85,8 @@ def generate_ai_reply(user_text: str) -> str:
             except Exception as e:
                 err_str = str(e)
                 print(f"Gemini error ({model_name}):", err_str)
-                # 遇到額度超限 (429) 或模型不存在 (404)，直接換下一個模型
                 if "429" in err_str or "404" in err_str:
                     break
-                # 只有遇到 503 高負載才進行同模型的延遲重試，其他錯誤直接換模型
                 if "503" not in err_str and "UNAVAILABLE" not in err_str:
                     break
 
@@ -101,24 +98,22 @@ def health_check():
     return {"status": "ok", "message": "LINE AI bot is running"}
 
 
-# 改用同步 def，讓 FastAPI 自動在背景執行緒處理阻塞的網路請求與 time.sleep
 @app.post("/webhook")
-def line_webhook(
+async def line_webhook(
     request: Request,
     x_line_signature: str = Header(default=""),
 ):
-    body = request.stream()
-    raw_body = b"".join(body)
-    if not verify_signature(raw_body, x_line_signature):
+    body = await request.body()
+    if not verify_signature(body, x_line_signature):
         raise HTTPException(status_code=400, detail="Invalid signature")
 
-    import json
-    data = json.loads(raw_body.decode("utf-8"))
+    data = await request.json()
     for event in data.get("events", []):
         if event.get("type") == "message" and event.get("message", {}).get("type") == "text":
             user_text = event["message"]["text"]
             reply_token = event["replyToken"]
-            reply_text = generate_ai_reply(user_text)
-            reply_line_message(reply_token, reply_text)
+            # 使用 asyncio.to_thread 安全地在背景執行同步 API 呼叫
+            reply_text = await asyncio.to_thread(generate_ai_reply, user_text)
+            await asyncio.to_thread(reply_line_message, reply_token, reply_text)
 
     return {"status": "ok"}
